@@ -1,0 +1,63 @@
+FROM nvidia/cuda:11.4.3-cudnn8-devel-ubuntu20.04
+
+WORKDIR /app
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update 
+RUN apt-get install -y python3 pip python3-tk wget unzip git
+RUN apt-get install -y libgl1-mesa-glx libgtk-3-0
+
+#Hack in 2024 to ensure we can still build
+RUN pip3 install networkx==3.1
+
+RUN pip3 install --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+RUN git clone https://github.com/Stability-AI/generative-models.git
+RUN pip3 install -r /app/generative-models/requirements/pt2.txt
+RUN pip3 install git+https://github.com/huggingface/transformers.git
+RUN pip3 install invisible_watermark transformers accelerate safetensors
+RUN pip3 install git+https://github.com/huggingface/diffusers
+RUN git clone https://github.com/huggingface/diffusers
+RUN cd diffusers && pip3 install ".[torch]"
+RUN cd diffusers/examples/dreambooth && pip3 install -r requirements_sdxl.txt
+
+#START insightface
+RUN mkdir -p /root/.insightface/models/
+RUN pip3 install -U insightface
+
+RUN pip3 install onnxruntime-gpu
+#END insightface
+
+#START exif
+RUN pip3 install piexif
+#END exif
+
+#START GFPGAN
+RUN pip3 install basicsr 
+RUN pip3 install facexlib
+
+RUN git clone https://github.com/postworthy/GFPGAN.git
+RUN cd GFPGAN && pip install -r requirements.txt && python3 setup.py develop
+RUN ln -s GFPGAN/gfpgan .
+
+RUN git clone https://github.com/xinntao/Real-ESRGAN.git
+RUN cd Real-ESRGAN && pip install -r requirements.txt && python3 setup.py develop
+RUN ln -s Real-ESRGAN/realesrgan .
+RUN mkdir -p /app/gfpgan/weights/
+
+RUN ln -s /root/.superres/realesr-general-x4v3.pth /app/realesr-general-x4v3.pth
+RUN ln -s /root/.superres/RealESRGAN_x4plus.pth /app/RealESRGAN_x4plus.pth
+RUN ln -s /root/.superres/GFPGANv1.4.pth /app/GFPGANv1.4.pth
+RUN ln -s /root/.superres/detection_Resnet50_Final.pth /app/gfpgan/weights/detection_Resnet50_Final.pth
+RUN ln -s /root/.superres/parsing_parsenet.pth /app/gfpgan/weights/parsing_parsenet.pth
+
+RUN cd GFPGAN && git pull
+#END GFPGAN
+
+#cinemagoer
+RUN pip3 install --upgrade git+https://github.com/cinemagoer/cinemagoer
+#END cinemagoer
+
+#PATCH https://github.com/XPixelGroup/BasicSR/pull/624/files
+RUN sed -i 's/from torchvision.transforms.functional_tensor import rgb_to_grayscale/from torchvision.transforms.functional import rgb_to_grayscale/' /usr/local/lib/python3.8/dist-packages/basicsr/data/degradations.py
+#END PATCH

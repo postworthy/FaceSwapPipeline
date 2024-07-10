@@ -1,0 +1,94 @@
+from nvidia/cuda:11.4.3-cudnn8-devel-ubuntu20.04
+
+WORKDIR /app
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update 
+RUN apt-get install -y python3 pip python3-tk wget unzip git
+RUN apt-get install -y libgl1-mesa-glx libgtk-3-0
+
+RUN pip3 install --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+RUN git clone https://github.com/Stability-AI/generative-models.git
+RUN pip3 install -r /app/generative-models/requirements/pt2.txt
+RUN pip3 install git+https://github.com/huggingface/transformers.git
+RUN pip3 install invisible_watermark transformers accelerate safetensors
+RUN pip3 install git+https://github.com/huggingface/diffusers
+RUN git clone https://github.com/huggingface/diffusers
+RUN cd diffusers && pip3 install ".[torch]"
+RUN cd diffusers/examples/dreambooth && pip3 install -r requirements_sdxl.txt
+
+
+#RUN python3 -c "from diffusers import DiffusionPipeline; import torch; pipe = DiffusionPipeline.from_pretrained('stabilityai/stable-diffusion-xl-base-1.0', torch_dtype=torch.float16, use_safetensors=True, variant='fp16')" || true
+#RUN python3 -c "from diffusers import DiffusionPipeline; import torch; pipe = DiffusionPipeline.from_pretrained('stabilityai/stable-diffusion-xl-refiner-1.0', torch_dtype=torch.float16, use_safetensors=True, variant='fp16')" || true
+#RUN python3 -c "from diffusers import DiffusionPipeline, AutoencoderKL; import torch; vae = AutoencoderKL.from_pretrained('madebyollin/sdxl-vae-fp16-fix', torch_dtype=torch.float16, use_safetensors=True)" || true
+
+
+#START insightface
+RUN mkdir -p /root/.insightface/models/
+RUN pip3 install -U insightface
+#RUN wget -O /root/.insightface/models/inswapper_128.onnx https://huggingface.co/deepinsight/inswapper/resolve/main/inswapper_128.onnx
+#RUN wget -O /root/.insightface/models/inswapper_128.onnx https://huggingface.co/Devia/G/resolve/main/inswapper_128.onnx
+RUN pip3 install onnxruntime-gpu
+#RUN python3 -c "import torch; import insightface; import onnxruntime; PROVIDERS = onnxruntime.get_available_providers(); [PROVIDERS.remove(provider) for provider in PROVIDERS if provider == 'TensorrtExecutionProvider']; insightface.app.FaceAnalysis(name='buffalo_l', providers=PROVIDERS)" || true
+#RUN python3 -c "import os, torch; from torchvision.transforms import Compose, Resize, ToTensor; from PIL import Image; from clip import clip; device = 'cuda' if torch.cuda.is_available() else 'cpu'; model, preprocess = clip.load('ViT-B/32', device=device)"
+#END insightface
+
+#START exif
+RUN pip3 install piexif
+#END exif
+
+#START Dreambooth
+#RUN python3 -c "from transformers import AutoTokenizer, PretrainedConfig; import diffusers; from diffusers import (AutoencoderKL, DDPMScheduler, DPMSolverMultistepScheduler, StableDiffusionXLPipeline, UNet2DConditionModel); a = AutoTokenizer.from_pretrained('stabilityai/stable-diffusion-xl-base-1.0', subfolder='tokenizer', use_fast=False); b = AutoTokenizer.from_pretrained('stabilityai/stable-diffusion-xl-base-1.0', subfolder='tokenizer_2', use_fast=False); c = DDPMScheduler.from_pretrained('stabilityai/stable-diffusion-xl-base-1.0', subfolder='scheduler'); d = AutoencoderKL.from_pretrained('madebyollin/sdxl-vae-fp16-fix'); e = UNet2DConditionModel.from_pretrained('stabilityai/stable-diffusion-xl-base-1.0', subfolder='unet')"
+#RUN python3 -c "from diffusers import StableDiffusionXLPipeline; import torch; pipe = StableDiffusionXLPipeline.from_pretrained('stabilityai/stable-diffusion-xl-base-1.0',torch_dtype=torch.float16)"
+#END Dreambooth
+
+#START GFPGAN
+RUN pip3 install basicsr 
+RUN pip3 install facexlib
+
+RUN git clone https://github.com/postworthy/GFPGAN.git
+RUN cd GFPGAN && pip install -r requirements.txt && python3 setup.py develop
+RUN ln -s GFPGAN/gfpgan .
+
+RUN git clone https://github.com/xinntao/Real-ESRGAN.git
+RUN cd Real-ESRGAN && pip install -r requirements.txt && python3 setup.py develop
+RUN ln -s Real-ESRGAN/realesrgan .
+RUN mkdir -p /app/gfpgan/weights/
+
+RUN ln -s /root/.superres/realesr-general-x4v3.pth /app/realesr-general-x4v3.pth
+RUN ln -s /root/.superres/RealESRGAN_x4plus.pth /app/RealESRGAN_x4plus.pth
+RUN ln -s /root/.superres/GFPGANv1.4.pth /app/GFPGANv1.4.pth
+RUN ln -s /root/.superres/detection_Resnet50_Final.pth /app/gfpgan/weights/detection_Resnet50_Final.pth
+RUN ln -s /root/.superres/parsing_parsenet.pth /app/gfpgan/weights/parsing_parsenet.pth
+
+#RUN wget -O /app/realesr-general-x4v3.pth https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth
+#RUN wget -O /app/RealESRGAN_x4plus.pth https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth
+#RUN wget -O /app/GFPGANv1.4.pth https://github.com/TencentARC/GFPGAN/releases/download/v1.3.0/GFPGANv1.4.pth
+#RUN wget -O /app/gfpgan/weights/detection_Resnet50_Final.pth https://github.com/xinntao/facexlib/releases/download/v0.1.0/detection_Resnet50_Final.pth
+#RUN wget -O /app/gfpgan/weights/parsing_parsenet.pth https://github.com/xinntao/facexlib/releases/download/v0.2.2/parsing_parsenet.pth
+
+RUN cd GFPGAN && git pull
+
+#END GFPGAN
+
+#SDXL Turbo
+#RUN python3 -c "from diffusers import DiffusionPipeline; import torch; pipe = DiffusionPipeline.from_pretrained('stabilityai/sdxl-turbo', torch_dtype=torch.float16, use_safetensors=True, variant='fp16')" 
+#END SDXL Turbo
+
+#cinemagoer
+RUN pip3 install --upgrade git+https://github.com/cinemagoer/cinemagoer
+#END cinemagoer
+
+ADD ./network/*.py ./network/
+ADD ./util.py .
+ADD ./upsampler.py .
+ADD ./new_faces.py .
+ADD ./masks.py .
+ADD ./ghost.py .
+ADD ./morph.py .
+ADD ./main.py .
+
+EXPOSE 5000
+
+CMD ["python3", "main.py"]
