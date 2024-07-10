@@ -165,6 +165,7 @@ Research/
 static/
 LORAS/
 Prompts.txt
+README-DREAMBOOTH.txt
 *.zip
 *.pth
 *.onnx
