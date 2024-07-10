@@ -154,6 +154,20 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
+#Custom Ignores
+docker_models_cache
+docker_models_cache/
+faces/
+jiras/
+output/
+repos/
+Research/
+static/
+LORAS/
+*.pth
+*.onnx
+
+
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
