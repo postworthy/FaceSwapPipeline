@@ -164,6 +164,8 @@ repos/
 Research/
 static/
 LORAS/
+Prompts.txt
+*.zip
 *.pth
 *.onnx
 
