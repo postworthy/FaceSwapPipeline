@@ -27,6 +27,9 @@ PROVIDERS = onnxruntime.get_available_providers()
 if 'TensorrtExecutionProvider' in PROVIDERS:
     PROVIDERS.remove('TensorrtExecutionProvider')
 
+if 'AzureExecutionProvider' in PROVIDERS:
+    PROVIDERS.remove('AzureExecutionProvider')
+
 def get_global_vars():
     global global_vars
     return global_vars
