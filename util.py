@@ -22,13 +22,17 @@ FACE_SWAPPER = None
 FACE_SWAPPER_GHOST = None
 FACE_ANALYSER = None
 
-PROVIDERS = onnxruntime.get_available_providers()
+#PROVIDERS = onnxruntime.get_available_providers()
 
-if 'TensorrtExecutionProvider' in PROVIDERS:
-    PROVIDERS.remove('TensorrtExecutionProvider')
+#if 'TensorrtExecutionProvider' in PROVIDERS:
+#    PROVIDERS.remove('TensorrtExecutionProvider')
 
-if 'AzureExecutionProvider' in PROVIDERS:
-    PROVIDERS.remove('AzureExecutionProvider')
+#if 'AzureExecutionProvider' in PROVIDERS:
+#    PROVIDERS.remove('AzureExecutionProvider')
+
+PROVIDERS = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+
+
 
 def get_global_vars():
     global global_vars
