@@ -31,24 +31,26 @@ def count_files_in_folder(directory):
 #    image_files = [os.path.join(faces_directory, file) for file in files if file.lower().endswith(('.png', '.jpg', '.jpeg'))]
 #    return [preprocess_image(Image.fromarray(x for _, x in read_and_scale(f))) for f in image_files]
 
-def faces_from_image_gen(names = ["young barbara palvin", "young Emma Watson", "young heidi klum", "a beautiful young teen girl"], WxH=128, tune_with_func=process_image):
+def faces_from_image_gen(
+        base_prompt='a masterpiece, intricate, highly detailed, a vibrant colorful hyper-realistic photo of ({{name}}), standing in a field of short grass, side swept hair, hair bun, fog and mist fill the background, a slight smirk, looking into camera',
+        negative_prompt='long neck, ugly, distortions',
+        names = ["young brad pitt", "young man"], 
+        WxH=128, 
+        tune_with_func=process_image):
     vars = get_global_vars()
     set_prompt = vars["set_prompt"]
     set_negative_prompt = vars["set_negative_prompt"]
     random_seed = vars["random_seed"]
     run_turbo = vars["run_turbo"]
     images = []
-
     for name in names:
-        set_prompt(f'a masterpiece, intricate, highly detailed, a vibrant colorful hyper-realistic photo of ({name}), standing in a field of short grass, side swept hair, hair bun, fog and mist fill the background, a slight smirk, looking into camera')
-        set_negative_prompt('long neck, ugly, distortions')
-        
+        prompt = base_prompt.replace("{{name}}", name)
+        set_prompt(prompt)
+        set_negative_prompt(negative_prompt)
         results = run_turbo(next(random_seed(loop=1)), tune_with_func=tune_with_func)
-
         for _, (_, image) in enumerate(results.items()):
             _, img = scale_image(np.array(image), WxH)
             images.append(preprocess_image(Image.fromarray(img)))
-
     return images
 
 def face_permutations(loops = 10, randomize = True, face_seed_function=faces_from_image_gen):

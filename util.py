@@ -11,6 +11,7 @@ from io import BytesIO
 import imageio
 from PIL import Image, ImageSequence
 import onnx
+from inswapper import INSwapper
 
 global_vars = None
 
@@ -30,8 +31,10 @@ FACE_ANALYSER = None
 #if 'AzureExecutionProvider' in PROVIDERS:
 #    PROVIDERS.remove('AzureExecutionProvider')
 
-PROVIDERS = ['CUDAExecutionProvider', 'CPUExecutionProvider']
-
+if torch.cuda.is_available():
+    PROVIDERS = ['CUDAExecutionProvider']
+else:
+    PROVIDERS = ['CUDAExecutionProvider', 'CPUExecutionProvider']
 
 
 def get_global_vars():
@@ -57,7 +60,8 @@ def get_face_swapper():
     if not FACE_SWAPPER:
         with THREAD_LOCK_FACESWAPPER:
             if not FACE_SWAPPER:
-                FACE_SWAPPER = insightface.model_zoo.get_model('/root/.insightface/models/inswapper_128.onnx', providers=PROVIDERS)
+                #FACE_SWAPPER = insightface.model_zoo.get_model('/root/.insightface/models/inswapper_128.onnx', providers=PROVIDERS)
+                FACE_SWAPPER = INSwapper(model_file='/root/.insightface/models/inswapper_128.onnx')
                 print("*** Face Swapper Loaded ***")
     return FACE_SWAPPER
 
@@ -68,7 +72,7 @@ def get_face_swapper_onnx_model_and_session():
             if not FACE_SWAPPER_ONNX_MODEL_AND_SESSION:
                 model_file = '/root/.insightface/models/inswapper_128.onnx'
                 model = onnx.load(model_file)
-                session = onnxruntime.InferenceSession(model_file, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+                session = onnxruntime.InferenceSession(model_file, providers=PROVIDERS)
                 FACE_SWAPPER_ONNX_MODEL_AND_SESSION = (model, session)
                 print("*** Face Swapper Onnx Loaded ***")
     return FACE_SWAPPER_ONNX_MODEL_AND_SESSION
@@ -226,7 +230,7 @@ def process_image_with_ghost(image, faces_directory='/app/faces/', upscale=False
             result = ghost_process_image(frame, source_image, upscale)
             yield Image.fromarray(result)
 
-def batch_process_image(into_images, from_image, upscale=False):
+def batch_process_image_old(into_images, from_image, upscale=False):
     from util import get_face_analyser, get_face_swapper
     from upsampler import upsample_batch
 
@@ -274,6 +278,62 @@ def batch_process_image(into_images, from_image, upscale=False):
 
     return processed_images
 
+def batch_process_image(into_images, from_image, upscale=False):
+    from util import get_face_analyser, get_face_swapper
+    from upsampler import upsample_batch
+
+    face_analyser = get_face_analyser()
+    face_swapper = get_face_swapper()
+
+
+    into_images = [img[:, :, ::-1] for img in into_images]  # Convert list of into images
+    from_image = from_image[:, :, ::-1]  # Convert single from image to batch format
+
+    #print(f"batch size: {len(into_images)}")
+
+    final_results = []
+    batch_into_faces = []
+    batch_has_face   = []
+    for i, into_image in enumerate(into_images):
+        try:
+            face = face_analyser.get(into_image)[0]
+        except:
+            face=None
+            print(f"No face at {i}")
+
+        if face:
+            batch_into_faces.append(face)
+            batch_has_face.append(True)
+        else:
+            batch_has_face.append(False)
+
+    from_faces = face_analyser.get(from_image)
+    from_faces_batch = []
+
+    from_faces_sorted = sorted(from_faces, key=lambda x: x.bbox[0])
+    if from_faces_sorted:
+        from_face = from_faces_sorted[0]
+
+        for _ in batch_into_faces:
+            from_faces_batch.append(from_face)
+
+    if len(batch_into_faces) > 0:
+        output_images = face_swapper.get(into_images, batch_into_faces, from_faces_batch, paste_back=True)
+    else:
+        output_images = []
+
+    final_results = []
+    no_face_offset = 0
+    for i, has_face in enumerate(batch_has_face):
+        if has_face:
+            final_result = output_images[i+no_face_offset]
+        else:
+            no_face_offset = no_face_offset - 1
+            final_result = into_images[i]
+        
+        final_results.append(final_result)
+    
+    return final_results
 
 def export_as_gif(frames, fps):
     numpy_frames = [np.array(frame.convert('RGB')) for frame in frames]
