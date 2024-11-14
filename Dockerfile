@@ -10,6 +10,9 @@ ADD ./masks.py .
 ADD ./ghost.py .
 ADD ./morph.py .
 ADD ./main.py .
+ADD ./train_dreambooth_lora_sdxl.py  .
+ADD ./sd_fsw_hybrid.py  .
+ADD ./inswapper.py .
 
 EXPOSE 5000
 
