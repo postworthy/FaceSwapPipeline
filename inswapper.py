@@ -7,7 +7,7 @@ from onnx import numpy_helper
 import insightface
 
 class INSwapper():
-    def __init__(self, model_file=None, session=None, batch_size=16):
+    def __init__(self, model_file=None, session=None, batch_size=8):
         self.model_file = model_file
         self.session = session
         self.batch_size = batch_size
@@ -89,11 +89,15 @@ class INSwapper():
         Ms = []
         aimgs = []
         is_single=False
+        return_count = self.batch_size
         
 
         if not isinstance(imgs, list):
             imgs = [imgs] 
             is_single=True
+        else:
+            return_count = len(imgs)
+
         if not isinstance(target_faces, list):
             target_faces = [target_faces] * len(imgs)
         if not isinstance(source_faces, list):
@@ -161,7 +165,7 @@ class INSwapper():
                 img = imgs[i]
                 aimg = aimgs[i]
                 M = Ms[i]
-                
+
                 target_img = img
                 fake_diff = bgr_fake.astype(np.float32) - aimg.astype(np.float32)
                 fake_diff = np.abs(fake_diff).mean(axis=2)
@@ -214,4 +218,4 @@ class INSwapper():
         if is_single:
             return fake_images[0]
         else:
-            return fake_images
+            return fake_images[:return_count]
