@@ -72,13 +72,42 @@ def load_model(model_file='./G_latest.pth', mask_model_file='./G_latest_mask.pth
         "input_size":   input_size,
     }
 
-def get_model():
+def cleanup_models(model_dict):
+    """
+    Cleans up models by removing them from GPU and clearing cache.
+    
+    Parameters:
+    model_dict (dict): Dictionary containing the models and other components returned from load_model function.
+    """
+    if not isinstance(model_dict, dict):
+        print("Error: model_dict is not a dictionary.")
+        return
+
+    model_keys = list(model_dict.keys())
+    
+    for model_name in model_keys:
+        model = model_dict[model_name]
+        if isinstance(model, torch.nn.Module):
+            del model_dict[model_name]
+            torch.cuda.empty_cache()
+            print(f"Model '{model_name}' has been removed from GPU and memory cleared.")
+        else:
+            print(f"'{model_name}' is not a model, skipping cleanup.")
+
+def get_model(model_file='./G_latest.pth', mask_model_file='./G_latest_mask.pth', arcface_file='./backbone.pth', force_load=False):
     global GLOBAL_MODEL
     global THREAD_LOCK_MODEL
-    if not GLOBAL_MODEL:
+    if force_load == True or not GLOBAL_MODEL:
         with THREAD_LOCK_MODEL:
-            if not GLOBAL_MODEL:
-                GLOBAL_MODEL = load_model()
+            if force_load == True or not GLOBAL_MODEL:
+                if GLOBAL_MODEL:
+                    cleanup_models(GLOBAL_MODEL)
+
+                GLOBAL_MODEL = load_model(model_file, mask_model_file, arcface_file)
+                print("*** Ghost Model Loaded ***")
+                print(f"model_file:         {model_file}")
+                print(f"mask_model_file:    {mask_model_file}")
+                print(f"arcface_file:       {arcface_file}")
                 print("*** Ghost Model Loaded ***")
     return GLOBAL_MODEL
 
@@ -377,7 +406,7 @@ def get_ghost_face_swapper():
         "get": lambda into_img, from_img: perform_inference(ghost_model["model"], ghost_model["arcface"], into_img, from_img, device),
     }
 
-def ghost_process_image(into_image, from_image, upscale=False):
+def ghost_process_image(into_image, from_image, upscale=False, mask_bypass=False):
     from upsampler import upsample_batch, upsample
     from util import get_face_analyser    
     
@@ -402,7 +431,10 @@ def ghost_process_image(into_image, from_image, upscale=False):
             from_img = from_img.astype(np.float32)
             #from_img = (from_img - mean) / std
             output_image = perform_inference(ghost_model["model"], ghost_model["arcface"], into_img, from_img)
-            mask_image = get_mask(ghost_model["mask"], ghost_model["arcface"], into_img, into_img_mask)
+            if mask_bypass:
+                mask_image = np.mean((np.ones_like(rgb_fake)* 255).astype(np.uint8), axis=2) 
+            else:
+                mask_image = get_mask(ghost_model["mask"], ghost_model["arcface"], into_img, into_img_mask)
             rgb_fake = np.array(output_image)
             into_img = np.clip(into_img*255., 0, 255).astype(np.uint8)
             #save_img_fromarray(into_img, f'/app/output/into_face_{i}.jpg')
@@ -415,7 +447,7 @@ def ghost_process_image(into_image, from_image, upscale=False):
 
     return final_result
 
-def ghost_batch_process_image(into_images, from_image, upscale=False):
+def ghost_batch_process_image(into_images, from_image, upscale=False, mask_bypass=False):
     from upsampler import upsample_batch
     from util import get_face_analyser
 
@@ -472,7 +504,10 @@ def ghost_batch_process_image(into_images, from_image, upscale=False):
         #print(batch_into_masks.shape)
 
         output_images = perform_inference(ghost_model["model"], ghost_model["arcface"], batch_into_faces, from_faces_batch)
-        mask_images = get_mask_batch(ghost_model["mask"], ghost_model["arcface"], batch_into_faces, batch_into_masks)
+        if not mask_bypass:
+            mask_images = get_mask_batch(ghost_model["mask"], ghost_model["arcface"], batch_into_faces, batch_into_masks)
+        else:
+            mask_images = []    
     else:
         output_images = []
         mask_images = []
@@ -482,9 +517,12 @@ def ghost_batch_process_image(into_images, from_image, upscale=False):
     for i, has_face in enumerate(batch_has_face):
         if has_face:
             rgb_fake = output_images[i+no_face_offset]
-            mask_image = mask_images[i+no_face_offset]
             estimated_norm = batch_into_norms[i+no_face_offset]
             into_img = np.clip(batch_into_faces[i+no_face_offset]*255., 0, 255).astype(np.uint8)
+            if mask_bypass:
+                mask_image = np.mean((np.ones_like(rgb_fake)* 255).astype(np.uint8), axis=2) 
+            else:
+                mask_image = mask_images[i+no_face_offset]
             #print(f"rgb_fake shape: {rgb_fake.shape}")  # Should be (256, 256, 3)
             #print(f"into_img shape: {into_img.shape}")  # Should be (256, 256, 3)
             final_result = merge_original_with_mask(into_images[i], rgb_fake, into_img, estimated_norm, mask_image)
