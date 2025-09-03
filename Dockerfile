@@ -1,4 +1,4 @@
-FROM faceswap-pipeline-base:latest
+FROM localhost:5555/faceswap-pipeline-base:latest
 
 WORKDIR /app
 

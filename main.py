@@ -48,7 +48,7 @@ needs_init_sd3 = True
 needs_init_sdxl = True
 needs_init_turbo = True
 
-def init(pipeline_name="sdxl"):
+def init(pipeline_name="sd3"):
     if pipeline_name == "turbo":
         return init_turbo(), None
     elif pipeline_name == "sdxl":
@@ -504,7 +504,7 @@ def set_steps(n=30):
 init()
 
 vars = {
-    "run": run_sdxl, 
+    "run": run_sd3, 
     "run_flux": run_flux, 
     "run_sd3": run_sd3, 
     "run_sdxl": run_sdxl, 

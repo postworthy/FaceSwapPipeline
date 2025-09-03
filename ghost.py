@@ -465,7 +465,8 @@ def ghost_batch_process_image(into_images, from_image, upscale=False, mask_bypas
     batch_has_face   = []
     for i, into_image in enumerate(into_images):
         try:
-            face = face_analyser.get(into_image)[0]
+            into_faces = face_analyser.get(into_image)
+            face = sorted(into_faces, key=lambda x: x.bbox[0])[0]
         except:
             face=None
             print(f"No face at {i}")
