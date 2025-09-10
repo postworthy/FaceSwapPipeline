@@ -20,7 +20,7 @@ from diffusers.models.transformers.transformer_flux import FluxTransformer2DMode
 from diffusers.pipelines.flux.pipeline_flux import FluxPipeline
 from transformers import CLIPTextModel, CLIPTokenizer,T5EncoderModel, T5TokenizerFast
 
-from pipelines_control import run_controlled_img2img_sdxl
+from pipelines_control import run_control
 
 #https://huggingface.co/docs/diffusers/main/en/optimization/fp16
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -515,10 +515,34 @@ def _ensure_sdxl():
         init_sdxl()
     return base
 
+def help():
+    print(
+"""
+******************
+Try:
+
+set_size(1024, 1024)
+set_prompt("your prompt here")
+
+[run(i) for i in random_seed(loop=3)]
+[run(i, tune_with_func=swap_face) for i in random_seed(loop=3)]
+
+[run_control(i) for i in random_seed(loop=3)]
+[run_control(i, tune_with_func=swap_face) for i in random_seed(loop=3)]
+[run_control(i, strength=0.95, controlnet_conditioning_scale=0.8) for i in random_seed(loop=3)]
+[run_control(i, strength=0.95, controlnet_conditioning_scale=0.8, tune_with_func=swap_face) for i in random_seed(loop=3)]
+
+
+x = face_permutations(3)
+
+******************
+"""
+    )    
 
 #init()
 
 vars = {
+    "help": help,
     "run": run_sd3, 
     "run_flux": run_flux, 
     "run_sd3": run_sd3, 
@@ -542,7 +566,7 @@ vars = {
     "get_refiner_strength": lambda: globals()["refiner_strength"],
     "set_refiner_strength": lambda s: globals().update(refiner_strength=s),
     "swap_all_in_one": swap_all_in_one,
-    "run_control": lambda base_img, style, **kw: run_controlled_img2img_sdxl(base_pipe=_ensure_sdxl(), base_image=base_img, style_prompt=style, negative_prompt=globals().get("negative_prompt"), steps=globals().get("n_steps", 30), height=globals().get("height", 1024), width=globals().get("width", 1024), **kw),
+    "run_control": lambda seed, **kw: run_control(base_pipe=_ensure_sdxl(), seed=seed, input_path_or_image="./input", style_prompt=globals()["prompt"], negative_prompt=globals().get("negative_prompt"), steps=globals().get("n_steps", 30), height=globals().get("height", 1024), width=globals().get("width", 1024), **kw)
 
 }
 
@@ -550,53 +574,22 @@ set_global_vars(vars)
 
 interactive_console = code.InteractiveConsole(vars)
 interactive_console.interact(
-    """
-    
-    
-    Custom interactive Python session. Type 'exit()' to quit.
-    
-    ******************
-    Try:
-    
-    [run_turbo(i) for i in random_seed(loop=10)]
-    
-    or
-    
-    [run(i) for i in random_seed(loop=3)]
-    
-    or
-    
-    [run(i, tune_with_func=swap_face) for i in random_seed(loop=3)]
-    
-    or
-    
-    x = face_permutations(3)
+"""
 
-    or
-
-    ## Load an image as the base to generate from
-    from PIL import Image, ImageOps
-    import os
-    src_path = "input/1.png"
-    out_path = "output/out.png"
-    target_size = (1024, 1024)
-    img = ImageOps.exif_transpose(Image.open(src_path)).convert("RGB")
-    fit = ImageOps.contain(img, target_size, method=Image.LANCZOS)
-    canvas = Image.new("RGB", target_size, (0, 0, 0))
-    x = (target_size[0] - fit.width) // 2
-    y = (target_size[1] - fit.height) // 2
-    canvas.paste(fit, (x, y))
-    run_control(
-        canvas,
-        "your prompt goes here",
-        strength=0.95,
-        controlnet_conditioning_scale=0.8,
-    )[0].save(out_path)
-
-    
-    ******************
+ _____              ____                     ____  _            _ _            
+|  ___|_ _  ___ ___/ ___|_      ____ _ _ __ |  _ \(_)_ __   ___| (_)_ __   ___ 
+| |_ / _` |/ __/ _ \___ \ \ /\ / / _` | '_ \| |_) | | '_ \ / _ \ | | '_ \ / _ \\
+|  _| (_| | (_|  __/___) \ V  V / (_| | |_) |  __/| | |_) |  __/ | | | | |  __/
+|_|  \__,_|\___\___|____/ \_/\_/ \__,_| .__/|_|   |_| .__/ \___|_|_|_| |_|\___|
+                                      |_|           |_|                        
 
 
-    """
+Custom interactive Python session. 
+
+Type 'exit()' to quit.
+Type 'help()' to print help message.
+    
+
+"""
     )
 

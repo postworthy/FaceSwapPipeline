@@ -160,6 +160,7 @@ docker_models_cache/
 faces/
 jiras/
 output/
+input/
 repos/
 Research/
 static/
