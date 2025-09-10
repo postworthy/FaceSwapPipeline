@@ -13,6 +13,7 @@ ADD ./main.py .
 ADD ./train_dreambooth_lora_sdxl.py  .
 ADD ./sd_fsw_hybrid.py  .
 ADD ./inswapper.py .
+ADD ./pipelines_control.py .
 
 EXPOSE 5000
 

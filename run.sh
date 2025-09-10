@@ -21,10 +21,11 @@ docker run -it --shm-size=2gb --gpus all \
     -v ./faces:/app/faces/ \
     -v ./audio:/app/audio/ \
     -v ./output:/app/output/ \
+    -v ./input:/app/input/ \
     -v /mnt/d/TrainingData/img_align_celeba/img_align_celeba/:/img_align_celeba \
     -v /mnt/d/TrainingData/sdxl_turbo_faces/:/sdxl_turbo_faces \
     -v /mnt/d/TrainingData/FromBadges/raw:/frombadges \
-    faceswap-pipeline:latest
+    localhost:5555/faceswap-pipeline:latest
 
 #-v ./output:/app/output/ \
 #-v /mnt/d/TrainingData/sdxl_turbo_faces:/app/output/ \
