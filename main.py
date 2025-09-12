@@ -23,6 +23,9 @@ from transformers import CLIPTextModel, CLIPTokenizer,T5EncoderModel, T5Tokenize
 from pipelines_control import run_control
 
 from diffusers.models.attention_processor import AttnProcessor2_0
+from gpu_utils import ModelManager
+
+manager = ModelManager()
 
 torch.backends.cuda.sdp_kernel(enable_flash=True, enable_math=False, enable_mem_efficient=True)
 
@@ -219,10 +222,7 @@ def init_turbo():
     return pipe
 
 def run_flux(seed = 0, tune_with_func=None, save_output=True, reverse_swap_colors=False):
-    global flux, needs_init_flux
-    
-    if needs_init_flux:
-        init_flux()
+    flux = _ensure_flux()
 
     print(f"Seed: {seed}")
     with torch.no_grad():
@@ -277,10 +277,7 @@ def run_flux(seed = 0, tune_with_func=None, save_output=True, reverse_swap_color
         return vars["last_run_results"]
 
 def run_sd3(seed = 0, tune_with_func=None, save_output=True, reverse_swap_colors=False):
-    global sd3, needs_init_sd3
-    
-    if needs_init_sd3:
-        init_sd3()
+    sd3 = _ensure_sd3()
 
     print(f"Seed: {seed}")
     with torch.no_grad():
@@ -335,10 +332,7 @@ def run_sd3(seed = 0, tune_with_func=None, save_output=True, reverse_swap_colors
         return vars["last_run_results"]
     
 def run_turbo(seed = 0, tune_with_func=None, save_output=True, reverse_swap_colors=False):
-    global turbo, needs_init_turbo
-    
-    if needs_init_turbo:
-        init_turbo()
+    turbo = _ensure_turbo
 
     print(f"Seed: {seed}")
     with torch.no_grad():
@@ -393,10 +387,7 @@ def run_turbo(seed = 0, tune_with_func=None, save_output=True, reverse_swap_colo
 
 
 def run_sdxl(seed = 0, use_refiner=False, tune_with_func=None):
-    global base, refiner, needs_init_sdxl
-    
-    if needs_init_sdxl:
-        init_sdxl()
+    base, refiner = _ensure_sdxl()
     
     print(f"Seed: {seed}")
     with torch.no_grad():
@@ -526,15 +517,41 @@ def set_steps(n=30):
 
 def _ensure_sd3():
     global sd3, needs_init_sd3
+    # decide target and free VRAM if needed
+    device_str = manager.before_switch("sd3")
     if needs_init_sd3 or sd3 is None:
         init_sd3()
+    # move and register under sd3 (even if already existed)
+    manager.after_switch("sd3", [sd3], device_index=None)
     return sd3
 
+
 def _ensure_sdxl():
-    global base, needs_init_sdxl
+    global base, refiner, needs_init_sdxl
+    device_str = manager.before_switch("sdxl")
     if needs_init_sdxl or base is None:
         init_sdxl()
-    return base
+    manager.after_switch("sdxl", [base, refiner], device_index=None)
+    return base, refiner
+
+def _ensure_flux():
+    global flux, needs_init_flux
+    # pick device & free current group if needed
+    _ = manager.before_switch("flux")
+    if needs_init_flux or flux is None:
+        init_flux()
+    # register & place on the chosen device
+    manager.after_switch("flux", [flux])
+    return flux
+
+def _ensure_turbo():
+    global turbo, needs_init_turbo
+    _ = manager.before_switch("turbo")
+    if needs_init_turbo or turbo is None:
+        init_turbo()
+    manager.after_switch("turbo", [turbo])
+    return turbo
+
 
 def help():
     print(
