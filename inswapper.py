@@ -7,11 +7,17 @@ from onnx import numpy_helper
 import insightface
 
 class INSwapper():
-    def __init__(self, model_file=None, session=None, batch_size=8):
+    def __init__(self, model_file=None, session=None, batch_size=8, device_id=0, providers=None):
         self.model_file = model_file
         self.session = session
         self.batch_size = batch_size
-        print("Batch Size:", self.batch_size)
+        self.device_id = device_id
+        self.providers = providers
+
+        print(f"Batch Size: {self.batch_size}")
+        print("Chosen device:", "CPU" if self.device_id is None else f"cuda:{self.device_id}")
+        print("Providers requested:", self.providers)
+
         # Load and modify the ONNX model
         model = onnx.load(self.model_file)
         graph = model.graph
@@ -40,8 +46,15 @@ class INSwapper():
             sess_options.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
 
             # Specify the execution providers in order of preference
-            providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
-            self.session = onnxruntime.InferenceSession(model_bytes, sess_options, providers=providers)
+            avail = set(onnxruntime.get_available_providers())
+            req = [p[0] if isinstance(p, tuple) else p for p in self.providers]
+            if "CUDAExecutionProvider" in req and "CUDAExecutionProvider" not in avail:
+                print("[INSwapper] CUDA EP not available; falling back to CPUExecutionProvider.")
+                prov = ["CPUExecutionProvider"]
+            else:
+                prov = self.providers
+
+            self.session = onnxruntime.InferenceSession(model_bytes, sess_options, providers=prov)
 
 
         # Verify that the GPU provider is being used

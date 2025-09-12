@@ -12,7 +12,7 @@ import imageio
 from PIL import Image, ImageSequence
 import onnx
 from inswapper import INSwapper
-
+from gpu_utils import select_device, providers_for
 global_vars = None
 
 THREAD_LOCK_FACEANALYSER = threading.Lock()
@@ -50,8 +50,11 @@ def get_face_analyser():
     if not FACE_ANALYSER:
         with THREAD_LOCK_FACEANALYSER:
             if not FACE_ANALYSER:
-                FACE_ANALYSER = insightface.app.FaceAnalysis(name='buffalo_l', providers=PROVIDERS)
-                FACE_ANALYSER.prepare(ctx_id=0, det_size=(640, 640))
+                dev = select_device()  # -1 for CPU, else 0..N-1 in current visibility
+                providers = providers_for(dev)
+
+                FACE_ANALYSER = insightface.app.FaceAnalysis(name='buffalo_l', providers=providers)
+                FACE_ANALYSER.prepare(ctx_id=dev, det_size=(640, 640))
                 print("*** Face Analyser Loaded ***")
     return FACE_ANALYSER
 
@@ -61,7 +64,9 @@ def get_face_swapper():
         with THREAD_LOCK_FACESWAPPER:
             if not FACE_SWAPPER:
                 #FACE_SWAPPER = insightface.model_zoo.get_model('/root/.insightface/models/inswapper_128.onnx', providers=PROVIDERS)
-                FACE_SWAPPER = INSwapper(model_file='/root/.insightface/models/inswapper_128.onnx')
+                dev = select_device()  # -1 for CPU, else 0..N-1 in current visibility
+                providers = providers_for(dev)
+                FACE_SWAPPER = INSwapper(model_file='/root/.insightface/models/inswapper_128.onnx', device_id=dev, providers=providers)
                 print("*** Face Swapper Loaded ***")
     return FACE_SWAPPER
 

@@ -1,77 +1,46 @@
 # Use an official CUDA base image with Ubuntu 20.04
-FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu20.04
-
-# Set environment variables
-ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
-ENV LD_LIBRARY_PATH=/usr/local/cuda/extras/CUPTI/lib64:$LD_LIBRARY_PATH
-ENV PATH=/usr/local/cuda/bin:$PATH
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Set timezone to UTC to avoid tzdata prompt
-ENV TZ=Etc/UTC
-
-# Install necessary packages
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    wget \
-    curl \
-    git \
-    software-properties-common \
-    python3-software-properties \
-    python3-apt \
-    && add-apt-repository ppa:deadsnakes/ppa \
-    && apt-get install -y python3.10 python3.10-dev python3.10-distutils tzdata \
-    && rm -rf /var/lib/apt/lists/*
-
-# Update alternatives to use Python 3.10
-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1 \
-    && update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1 \
-    && curl https://bootstrap.pypa.io/get-pip.py | python3.10
-
-# Set pip3.10 as default
-RUN ln -s /usr/bin/pip3 /usr/bin/pip
-
+FROM nvcr.io/nvidia/pytorch:25.06-py3
 
 WORKDIR /app
 
-#Hack in 2024 to ensure we can still build
-RUN pip install networkx==3.1
+# System libs needed by OpenCV (cv2)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        libgl1 libglib2.0-0 && \
+    rm -rf /var/lib/apt/lists/*
 
-RUN pip install --upgrade torch==2.5.1+cu118 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+RUN python3 -m pip install -U --no-cache-dir pip setuptools wheel
 
-RUN git clone https://github.com/Stability-AI/generative-models.git
-#RUN pip install -r /app/generative-models/requirements/pt2.txt
-RUN pip install black==23.7.0 chardet==5.1.0 "clip @ git+https://github.com/openai/CLIP.git" einops>=0.6.1 fairscale>=0.4.13 fire>=0.5.0 fsspec>=2023.6.0 invisible-watermark>=0.2.0 kornia matplotlib>=3.7.2 natsort>=8.4.0 ninja>=1.11.1 numpy>=1.24.4 omegaconf>=2.3.0 open-clip-torch>=2.20.0 opencv-python==4.6.0.66 pandas>=2.0.3 pillow>=9.5.0 pudb>=2022.1.3 pytorch-lightning pyyaml>=6.0.1 rembg scipy>=1.10.1 streamlit>=0.73.1 tensorboardx==2.6 timm>=0.9.2 tokenizers==0.12.1 torch==2.5.1+cu118 torchaudio==2.5.1+cu118 torchdata torchmetrics>=1.0.1 torchvision==0.20.1+cu118 tqdm>=4.65.0 transformers==4.19.1 "urllib3<1.27,>=1.25.4" wandb>=0.15.6 webdataset>=0.2.33 wheel>=0.41.0 gradio streamlit-keyup==0.2.0
-RUN pip install -U xformers --index-url https://download.pytorch.org/whl/cu118
+RUN mkdir -p /root/.insightface/models/
+
 RUN pip install git+https://github.com/huggingface/transformers.git
-#RUN pip install transformers
-RUN pip install invisible_watermark transformers accelerate safetensors bitsandbytes
 RUN pip install git+https://github.com/huggingface/diffusers
-RUN git clone https://github.com/huggingface/diffusers
-RUN pip install sentencepiece
-RUN pip install git+https://github.com/huggingface/peft.git #DoRA fix
-#RUN pip install peft
-
-RUN pip install --upgrade albumentations
-#RUN cd diffusers && pip install ".[torch]"
-RUN cd diffusers/examples/dreambooth && pip install -r requirements_sdxl.txt
-RUN cd diffusers/examples/dreambooth && pip install -r requirements_sd3.txt
-RUN cd diffusers/examples/dreambooth && pip install -r requirements_flux.txt
+RUN pip install -U optimum-quanto accelerate safetensors sentencepiece piexif onnxruntime-gpu bitsandbytes insightface
 RUN accelerate config default
 
-#START insightface
-RUN mkdir -p /root/.insightface/models/
-RUN pip install -U insightface
+#RUN git clone https://github.com/Stability-AI/generative-models.git
+#RUN pip install -r /app/generative-models/requirements/pt2.txt
+#RUN pip install black==23.7.0 chardet==5.1.0 "clip @ git+https://github.com/openai/CLIP.git" einops>=0.6.1 fairscale>=0.4.13 fire>=0.5.0 fsspec>=2023.6.0 invisible-watermark>=0.2.0 kornia matplotlib>=3.7.2 natsort>=8.4.0 ninja>=1.11.1 numpy>=1.24.4 omegaconf>=2.3.0 open-clip-torch>=2.20.0 opencv-python==4.6.0.66 pandas>=2.0.3 pillow>=9.5.0 pudb>=2022.1.3 pytorch-lightning pyyaml>=6.0.1 rembg scipy>=1.10.1 streamlit>=0.73.1 tensorboardx==2.6 timm>=0.9.2 tokenizers==0.12.1 torch==2.5.1+cu118 torchaudio==2.5.1+cu118 torchdata torchmetrics>=1.0.1 torchvision==0.20.1+cu118 tqdm>=4.65.0 transformers==4.19.1 "urllib3<1.27,>=1.25.4" wandb>=0.15.6 webdataset>=0.2.33 wheel>=0.41.0 gradio streamlit-keyup==0.2.0
+#RUN pip install -U xformers --index-url https://download.pytorch.org/whl/cu118
+#RUN pip install git+https://github.com/huggingface/transformers.git
 
-RUN pip install onnxruntime-gpu==1.18.1
-#END insightface
+#RUN pip install invisible_watermark transformers accelerate safetensors bitsandbytes
 
-#START exif
-RUN pip install piexif
-#END exif
+#RUN git clone https://github.com/huggingface/diffusers
+#RUN pip install git+https://github.com/huggingface/peft.git #DoRA fix
+#RUN pip install peft
+
+#RUN pip install --upgrade albumentations
+#RUN cd diffusers && pip install ".[torch]"
+#RUN cd diffusers/examples/dreambooth && pip install -r requirements_sdxl.txt
+#RUN cd diffusers/examples/dreambooth && pip install -r requirements_sd3.txt
+#RUN cd diffusers/examples/dreambooth && pip install -r requirements_flux.txt
+#
+
 
 #START GFPGAN
-RUN pip install basicsr 
-RUN pip install facexlib
+RUN python3 -m pip install --use-pep517 --no-cache-dir --no-build-isolation --no-deps \
+  "basicsr @ git+https://github.com/XPixelGroup/BasicSR@8d56e3a045f9fb3e1d8872f92ee4a4f07f886b0a"
 
 RUN git clone https://github.com/postworthy/GFPGAN.git
 RUN cd GFPGAN && pip install -r requirements.txt && python3 setup.py develop
@@ -91,20 +60,27 @@ RUN ln -s /root/.superres/parsing_parsenet.pth /app/gfpgan/weights/parsing_parse
 RUN cd GFPGAN && git pull
 #END GFPGAN
 
+# Avoid NumPy 2.x ABI breakage
+RUN python3 -m pip install --no-cache-dir "numpy<2"
 #cinemagoer
-RUN pip install --upgrade git+https://github.com/cinemagoer/cinemagoer
+#RUN pip install --upgrade git+https://github.com/cinemagoer/cinemagoer
 #END cinemagoer
 
 #PATCH https://github.com/XPixelGroup/BasicSR/pull/624/files
-RUN sed -i 's/from torchvision.transforms.functional_tensor import rgb_to_grayscale/from torchvision.transforms.functional import rgb_to_grayscale/' /usr/local/lib/python3.10/dist-packages/basicsr/data/degradations.py
+#RUN sed -i 's/from torchvision.transforms.functional_tensor import rgb_to_grayscale/from torchvision.transforms.functional import rgb_to_grayscale/' /usr/local/lib/python3.12/dist-packages/basicsr/data/degradations.py
 #END PATCH
 
 
 #Should be at the top but I dont want to wait for the full rebuild
-RUN apt-get update && apt-get install -y libgl1-mesa-glx libgtk-3-0 && rm -rf /var/lib/apt/lists/*
+#RUN apt-get update && apt-get install -y libgl1-mesa-glx libgtk-3-0 && rm -rf /var/lib/apt/lists/*
 
-#Quantize Flux
-RUN pip install optimum-quanto
+
+ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True,max_split_size_mb:64
+
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/cuda/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
+RUN printf "/usr/local/cuda/lib64\n/usr/local/cuda/targets/x86_64-linux/lib\n" \
+  > /etc/ld.so.conf.d/cuda-ngc.conf && ldconfig
+
 
 #SadTalker
 #RUN git clone https://github.com/OpenTalker/SadTalker.git

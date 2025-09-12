@@ -11,6 +11,7 @@ fi
 
 
 docker run -it --shm-size=2gb --gpus all \
+    -e CUDA_DEVICE_ORDER=PCI_BUS_ID \
     -v ./docker_models_cache/.cache/:/root/.cache/ \
     -v ./docker_models_cache/.insightface/:/root/.insightface/ \
     -v ./docker_models_cache/.superres/:/root/.superres/ \
@@ -25,7 +26,7 @@ docker run -it --shm-size=2gb --gpus all \
     -v /mnt/d/TrainingData/img_align_celeba/img_align_celeba/:/img_align_celeba \
     -v /mnt/d/TrainingData/sdxl_turbo_faces/:/sdxl_turbo_faces \
     -v /mnt/d/TrainingData/FromBadges/raw:/frombadges \
-    localhost:5555/faceswap-pipeline:latest
+    faceswap-pipeline:5090
 
 #-v ./output:/app/output/ \
 #-v /mnt/d/TrainingData/sdxl_turbo_faces:/app/output/ \

@@ -67,10 +67,19 @@ def get_sdxl_control_img2img_from_base(
     except Exception:
         dtype = torch.float16 if torch.cuda.is_available() else torch.float32
 
-    controlnet = ControlNetModel.from_pretrained(control_id, torch_dtype=dtype)
+    controlnet = ControlNetModel.from_pretrained(
+        control_id, 
+        torch_dtype=dtype,
+        use_safetensors=True,
+        variant="fp16",
+    )
 
     # Reuse components from base pipe
-    pipe = StableDiffusionXLControlNetImg2ImgPipeline.from_pipe(base_pipe, controlnet=controlnet)
+    pipe = StableDiffusionXLControlNetImg2ImgPipeline.from_pipe(
+        base_pipe, 
+        controlnet=controlnet,
+        torch_dtype=dtype,
+    )
 
     # IMPORTANT: don't re-enable offload on the derived pipe (prevents _hf_hook errors)
     try:

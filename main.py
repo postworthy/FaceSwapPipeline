@@ -22,6 +22,14 @@ from transformers import CLIPTextModel, CLIPTokenizer,T5EncoderModel, T5Tokenize
 
 from pipelines_control import run_control
 
+from diffusers.models.attention_processor import AttnProcessor2_0
+
+torch.backends.cuda.sdp_kernel(enable_flash=True, enable_math=False, enable_mem_efficient=True)
+
+local_rank = int(os.environ.get("LOCAL_RANK", 0))
+torch.cuda.set_device(local_rank)
+device = torch.device(f"cuda:{local_rank}")
+
 #https://huggingface.co/docs/diffusers/main/en/optimization/fp16
 torch.backends.cuda.matmul.allow_tf32 = True
 
@@ -140,7 +148,7 @@ def init_sd3():
         variant="fp16", 
         use_safetensors=True,)
     
-    pipe.to("cuda" if torch.cuda.is_available() else "cpu")
+    pipe.to(device if torch.cuda.is_available() else "cpu")
 
     sd3 = pipe
 
@@ -157,7 +165,7 @@ def init_sdxl():
             "stabilityai/stable-diffusion-xl-base-1.0", 
             torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32, 
             variant="fp16", 
-            use_safetensors=True, 
+            use_safetensors=True,
         )
     )
     pipelines.append(
@@ -172,14 +180,27 @@ def init_sdxl():
     #scheduler = EulerAncestralDiscreteScheduler.from_config(pipelines[0].scheduler.config, rescale_betas_zero_snr=True, timestep_spacing="trailing")
     #scheduler = DDPMScheduler.from_config(pipelines[0].scheduler.config, rescale_betas_zero_snr=True, timestep_spacing="trailing")
     scheduler = DPMSolverMultistepScheduler.from_config(pipelines[0].scheduler.config, use_karras_sigmas=True)
-    vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix", torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32, use_safetensors=True)
+    vae = AutoencoderKL.from_pretrained(
+        "madebyollin/sdxl-vae-fp16-fix", 
+        torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32, 
+        use_safetensors=True,
+    )
     for pipeline in pipelines:
         pipeline.scheduler = scheduler
         pipeline.vae = vae
         pipeline.unet = torch.compile(pipeline.unet, mode="reduce-overhead")
         #pipeline.unet.enable_xformers_memory_efficient_attention()
         #pipeline.enable_model_cpu_offload()
-        pipeline.to("cuda" if torch.cuda.is_available() else "cpu")
+        pipeline.to(device if torch.cuda.is_available() else "cpu")
+
+    for pipe in pipelines:
+        pipe.unet.set_attn_processor(AttnProcessor2_0())
+        if hasattr(pipe, "controlnet"):
+            cn = pipe.controlnet
+            if isinstance(cn, (list, tuple)):
+                for c in cn: c.set_attn_processor(AttnProcessor2_0())
+            else:
+                cn.set_attn_processor(AttnProcessor2_0())
 
     base = pipelines[0]
     refiner = pipelines[1]
@@ -191,7 +212,7 @@ def init_turbo():
     needs_init_turbo = False
  
     pipe = AutoPipelineForText2Image.from_pretrained("stabilityai/sdxl-turbo", torch_dtype=torch.float16, variant="fp16")
-    pipe.to("cuda" if torch.cuda.is_available() else "cpu")
+    pipe.to(device if torch.cuda.is_available() else "cpu")
 
     turbo = pipe
 

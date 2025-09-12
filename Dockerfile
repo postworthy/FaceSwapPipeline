@@ -1,4 +1,4 @@
-FROM localhost:5555/faceswap-pipeline-base:latest
+FROM faceswap-pipeline-base:5090
 
 WORKDIR /app
 
@@ -14,6 +14,7 @@ ADD ./train_dreambooth_lora_sdxl.py  .
 ADD ./sd_fsw_hybrid.py  .
 ADD ./inswapper.py .
 ADD ./pipelines_control.py .
+ADD ./gpu_utils.py .
 
 EXPOSE 5000
 
