@@ -387,7 +387,7 @@ def run_turbo(seed = 0, tune_with_func=None, save_output=True, reverse_swap_colo
 
 
 def run_sdxl(seed = 0, use_refiner=False, tune_with_func=None):
-    base, refiner = _ensure_sdxl()
+    base, refiner = _ensure_sdxl(include_refiner=True)
     
     print(f"Seed: {seed}")
     with torch.no_grad():
@@ -526,13 +526,16 @@ def _ensure_sd3():
     return sd3
 
 
-def _ensure_sdxl():
+def _ensure_sdxl(include_refiner=False):
     global base, refiner, needs_init_sdxl
     device_str = manager.before_switch("sdxl")
     if needs_init_sdxl or base is None:
         init_sdxl()
     manager.after_switch("sdxl", [base, refiner], device_index=None)
-    return base, refiner
+    if include_refiner:
+        return base, refiner
+    else:
+        return base
 
 def _ensure_flux():
     global flux, needs_init_flux

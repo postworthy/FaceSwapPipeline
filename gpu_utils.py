@@ -93,6 +93,12 @@ class ModelManager:
     - device_policy: 'env-rank' (default), 'max-free', 'fixed:<idx>'
     - switch_policy: 'offload' (default) or 'destroy'  (destroy only drops our refs; you still own globals)
     - min_free_gb: if free VRAM on target device is below threshold, we free current group first
+
+    Robustness for Diffusers/ControlNet/SDXL:
+    - Remembers the device selected in `before_switch` and uses the SAME device in `after_switch`.
+    - Flattens tuples/lists and unwraps to pipeline-like objects automatically.
+    - Forces ALL submodules of every registered pipeline onto one device and sets `_execution_device`.
+    - Detects and heals accidental multi-device splits; optional strict failure via env `MM_STRICT_DEVICE=1`.
     """
     def __init__(self,
                  device_policy: str = None,
@@ -104,6 +110,9 @@ class ModelManager:
         self.current_group: Optional[str] = None
         self.current_device: Optional[int] = None
         self.registry: dict[str, List[object]] = {}   # group -> list[pipelines]
+        self.strict_device = os.getenv("MM_STRICT_DEVICE", "0") == "1"
+        # remember the device chosen in before_switch so after_switch won't pick a different one
+        self._pending_device_index: Optional[int] = None
 
     # -------- device selection --------
     def _pick_device_index(self, explicit: Optional[int] = None) -> Optional[int]:
@@ -113,8 +122,7 @@ class ModelManager:
             return explicit
         if self.device_policy.startswith("fixed:"):
             try:
-                idx = int(self.device_policy.split(":", 1)[1])
-                return idx
+                return int(self.device_policy.split(":", 1)[1])
             except Exception:
                 pass
         if self.device_policy == "env-rank":
@@ -143,15 +151,82 @@ class ModelManager:
             self._offload_group(self.current_group)
             free_cuda()
 
+    # -------- internal normalization/helpers (only used inside ModelManager) --------
+    def _flatten(self, items: Iterable[object]) -> List[object]:
+        out: List[object] = []
+        for x in items:
+            if x is None:
+                continue
+            if isinstance(x, (list, tuple)):
+                out.extend(self._flatten(x))
+            else:
+                out.append(x)
+        return out
+
+    def _is_pipeline_like(self, obj) -> bool:
+        return hasattr(obj, "config") or hasattr(obj, "unet") or hasattr(obj, "vae")
+
+    def _unwrap_pipeline_like(self, obj):
+        if self._is_pipeline_like(obj):
+            return obj
+        if isinstance(obj, (list, tuple)):
+            for it in obj:
+                if self._is_pipeline_like(it):
+                    return it
+        return obj  # allow non-pipeline objects to be tracked too
+
+    def _collect_devices(self, pipe) -> List[torch.device]:
+        devs = set()
+        for name in ("unet","vae","text_encoder","text_encoder_2","text_encoder_3","transformer","image_encoder"):
+            m = getattr(pipe, name, None)
+            if m is not None:
+                try:
+                    for p in m.parameters():
+                        devs.add(p.device)
+                        break
+                except Exception:
+                    pass
+        cn = getattr(pipe, "controlnet", None)
+        if cn is not None:
+            items = cn if isinstance(cn, (list, tuple)) else [cn]
+            for c in items:
+                try:
+                    for p in c.parameters():
+                        devs.add(p.device)
+                        break
+                except Exception:
+                    pass
+        exec_dev = getattr(pipe, "_execution_device", None)
+        if isinstance(exec_dev, torch.device):
+            devs.add(exec_dev)
+        return list(devs)
+
+    def _heal_split(self, pipe, dev_str: str):
+        """Force all submodules (incl. controlnet(s)) onto dev_str and sync execution device."""
+        _to_device(pipe, dev_str)
+        cn = getattr(pipe, "controlnet", None)
+        if cn is not None:
+            items = cn if isinstance(cn, (list, tuple)) else [cn]
+            for c in items:
+                try: c.to(dev_str)
+                except Exception: pass
+        try:
+            pipe._execution_device = torch.device(dev_str) if isinstance(dev_str, str) else dev_str
+        except Exception:
+            pass
+
     # -------- public switching API --------
     def before_switch(self, target_group: str, target_device_index: Optional[int] = None) -> str:
         """
         Call before initializing/using a new group.
         Returns the device string to use ('cuda:N' or 'cpu').
+        IMPORTANT: The chosen device is remembered and reused in `after_switch`.
         """
         idx = self._pick_device_index(target_device_index)
+        self._pending_device_index = idx  # remember for after_switch
         self._free_memory_if_needed(idx)
-        # If we're switching between groups, optionally free current right now
+
+        # If switching groups, optionally free current now
         if self.current_group and self.current_group != target_group:
             if self.switch_policy == "offload":
                 self._offload_group(self.current_group)
@@ -160,27 +235,65 @@ class ModelManager:
             free_cuda()
             self.current_group = None
             self.current_device = None
-        return self._device_string(idx)
+
+        dev_str = self._device_string(idx)
+        # Set CUDA current device early to reduce chances of tensors landing on a different GPU
+        if torch.cuda.is_available() and idx is not None and idx >= 0:
+            try: torch.cuda.set_device(idx)
+            except Exception: pass
+        return dev_str
 
     def after_switch(self, group: str, objects: Iterable[object], device_index: Optional[int] = None, recompile_unet: bool = False):
         """
         Register objects under a group and move them to the chosen device.
+        This method now *reuses* the device selected in `before_switch` unless an explicit index is provided.
         """
-        objs = [o for o in objects if o is not None]
+        # Normalize and unwrap
+        objs_in = self._flatten(list(objects))
+        objs = [self._unwrap_pipeline_like(o) for o in objs_in if o is not None]
         self.registry[group] = objs
-        idx = self._pick_device_index(device_index)
+
+        # Use explicit device if provided, else the one chosen in before_switch
+        idx = device_index if device_index is not None else self._pending_device_index
+        if idx is None:
+            idx = self._pick_device_index(None)  # final fallback
+
         dev_str = self._device_string(idx)
-        # Move the new group to device
+
+        # Move all pipelines/modules to the same device and set execution device
         for p in objs:
-            _to_device(p, dev_str)
-            # optional: recompile unet if you rely on torch.compile across device changes
-            if recompile_unet and hasattr(p, "unet") and p.unet is not None:
-                try:
-                    p.unet = torch.compile(p.unet, mode="reduce-overhead")
-                except Exception:
-                    pass
+            if self._is_pipeline_like(p):
+                _to_device(p, dev_str)
+                if recompile_unet and hasattr(p, "unet") and p.unet is not None:
+                    try:
+                        p.unet = torch.compile(p.unet, mode="reduce-overhead")
+                    except Exception:
+                        pass
+
+        # Heal/verify: ensure no multi-device split remains
+        for p in objs:
+            if not self._is_pipeline_like(p):
+                continue
+            devs = {str(d) for d in self._collect_devices(p) if isinstance(d, torch.device)}
+            if len(devs) > 1:
+                self._heal_split(p, dev_str)
+                devs2 = {str(d) for d in self._collect_devices(p) if isinstance(d, torch.device)}
+                if len(devs2) > 1:
+                    msg = f"ModelManager.after_switch: pipeline spans multiple devices: {sorted(devs2)} (target {dev_str})"
+                    if self.strict_device:
+                        raise RuntimeError(msg)
+                    else:
+                        print(msg)
+
+        # Finalize state
         self.current_group = group
         self.current_device = idx
+        self._pending_device_index = None  # consumed
+
+        # Set CUDA device so subsequent tensor creations default here
+        if torch.cuda.is_available() and idx is not None and idx >= 0:
+            try: torch.cuda.set_device(idx)
+            except Exception: pass
 
     def move_current_to(self, device_index: Optional[int]):
         """Explicitly move the current group to a specific device index."""
@@ -190,7 +303,16 @@ class ModelManager:
         dev_str = self._device_string(idx)
         for p in self.registry.get(self.current_group, []):
             _to_device(p, dev_str)
+        # Verify & heal if needed
+        for p in self.registry.get(self.current_group, []):
+            if self._is_pipeline_like(p):
+                devs = {str(d) for d in self._collect_devices(p) if isinstance(d, torch.device)}
+                if len(devs) > 1:
+                    self._heal_split(p, dev_str)
         self.current_device = idx
+        if torch.cuda.is_available() and idx is not None and idx >= 0:
+            try: torch.cuda.set_device(idx)
+            except Exception: pass
         free_cuda()
 
     # -------- free/destroy internals --------

@@ -57,18 +57,45 @@ def get_sdxl_control_img2img_from_base(
     if base_pipe is None:
         raise ValueError("SDXL base_pipe is None. Make sure init_sdxl() ran and `base` is set.")
 
+    # Figure out the base device ONCE and use it consistently
+    try:
+        base_device = next(base_pipe.unet.parameters()).device
+    except Exception:
+        base_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    def _pin_pipe(pipe, dev: torch.device):
+        # Move all known heavy bits and the controlnet(s), then sync execution device
+        pipe.to(dev)
+        for name in ("unet", "vae", "text_encoder", "text_encoder_2", "text_encoder_3", "transformer", "image_encoder"):
+            m = getattr(pipe, name, None)
+            if m is not None:
+                try: m.to(dev)
+                except Exception: pass
+        cn = getattr(pipe, "controlnet", None)
+        if cn is not None:
+            items = cn if isinstance(cn, (list, tuple)) else [cn]
+            for c in items:
+                try: c.to(dev)
+                except Exception: pass
+        try:
+            pipe._execution_device = dev
+        except Exception:
+            pass
+        return pipe
+
     key = (id(base_pipe), control_id)
     if key in _SDXL_CTRL_CACHE:
-        return _SDXL_CTRL_CACHE[key]
+        # IMPORTANT: if we previously cached it on another GPU, re-pin it now.
+        return _pin_pipe(_SDXL_CTRL_CACHE[key], base_device)
 
-    # Match dtype/device to base
+    # Match dtype to base
     try:
         dtype = base_pipe.unet.dtype
     except Exception:
         dtype = torch.float16 if torch.cuda.is_available() else torch.float32
 
     controlnet = ControlNetModel.from_pretrained(
-        control_id, 
+        control_id,
         torch_dtype=dtype,
         use_safetensors=True,
         variant="fp16",
@@ -76,17 +103,13 @@ def get_sdxl_control_img2img_from_base(
 
     # Reuse components from base pipe
     pipe = StableDiffusionXLControlNetImg2ImgPipeline.from_pipe(
-        base_pipe, 
+        base_pipe,
         controlnet=controlnet,
         torch_dtype=dtype,
     )
 
-    # IMPORTANT: don't re-enable offload on the derived pipe (prevents _hf_hook errors)
-    try:
-        base_device = next(base_pipe.unet.parameters()).device
-    except Exception:
-        base_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    pipe.to(base_device)
+    # Pin new pipe (and all submodules) to the same device as the base
+    _pin_pipe(pipe, base_device)
 
     # Light memory savers are safe
     try:
@@ -98,6 +121,7 @@ def get_sdxl_control_img2img_from_base(
 
     _SDXL_CTRL_CACHE[key] = pipe
     return pipe
+
 
 
 # ---------- Single-image runner (used internally) ----------
@@ -145,7 +169,9 @@ def run_controlled_img2img_sdxl(
     control_img = _canny(init, canny_low, canny_high)
 
     pipe = get_sdxl_control_img2img_from_base(base_pipe, control_id=control_id)
-    generator = torch.manual_seed(seed) if seed is not None else None
+    dev = getattr(pipe, "_execution_device", next(pipe.unet.parameters()).device)
+    generator = torch.Generator(device=str(dev)).manual_seed(seed) if seed is not None else None
+
 
     out = pipe(
         prompt=style_prompt,
